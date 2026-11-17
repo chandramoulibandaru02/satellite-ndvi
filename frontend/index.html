@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Krishna Basin Earth Observation</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%231b4332'/><rect x='6' y='6' width='20' height='20' fill='none' stroke='%23ffffff' stroke-width='2'/></svg>" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <style>
+    :root {
+      --bg: #ffffff;
+      --surface: #f7f8f7;
+      --border: #d0d5dd;
+      --text: #101828;
+      --muted: #475467;
+      --accent: #1b4332;
+      --accent-hover: #143326;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--text);
+      background-color: var(--bg);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    /* Header */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    /* Search Bar */
+    .search-wrapper {
+      position: relative;
+      display: flex;
+      width: 100%;
+      max-width: 440px;
+    }
+
+    .search-wrapper input {
+      width: 100%;
+      height: 36px;
+      padding: 0 12px;
+      font-size: 14px;
+      border: 1px solid var(--border);
+      border-right: none;
+      border-radius: 2px 0 0 2px;
+      outline: none;
+      color: var(--text);
+    }
+
+    .search-wrapper input:focus {
+      border-color: var(--accent);
+    }
+
+    .search-wrapper button {
+      height: 36px;
+      padding: 0 16px;
+      font-size: 14px;
+      font-weight: 500;
+      background: var(--accent);
+      color: #ffffff;
+      border: 1px solid var(--accent);
+      border-radius: 0 2px 2px 0;
+      cursor: pointer;
+    }
+
+    .search-wrapper button:hover {
+      background: var(--accent-hover);
+    }
+
+    .search-results {
+      position: absolute;
+      top: 38px;
+      left: 0;
+      right: 0;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      z-index: 1000;
+      list-style: none;
+      display: none;
+    }
+
+    .search-results li {
+      padding: 8px 12px;
+      font-size: 13px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+    }
+
+    .search-results li:last-child {
+      border-bottom: none;
+    }
+
+    .search-results li:hover {
+      background: var(--surface);
+    }
+
+    /* Main Workspace */
+    .workspace {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    aside {
+      width: 340px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .panel-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 10px 12px;
+    }
+
+    /* Radius Control Bar */
+    .radius-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .radius-row input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent);
+    }
+
+    .radius-input-box {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .radius-input-box input[type="number"] {
+      width: 100px;
+      height: 30px;
+      padding: 0 8px;
+      font-size: 13px;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+    }
+
+    .btn-apply {
+      height: 30px;
+      padding: 0 12px;
+      font-size: 13px;
+      font-weight: 500;
+      background: var(--accent);
+      color: #ffffff;
+      border: 1px solid var(--accent);
+      border-radius: 2px;
+      cursor: pointer;
+    }
+
+    .btn-apply:hover {
+      background: var(--accent-hover);
+    }
+
+    /* Layer Items */
+    .layer-item {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+    }
+
+    .layer-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .layer-controls {
+      margin-top: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .layer-controls input[type="range"] {
+      width: 160px;
+      accent-color: var(--accent);
+    }
+
+    /* Index Readout Cards */
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .metric-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 10px;
+    }
+
+    .metric-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .metric-value {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text);
+      margin-top: 2px;
+    }
+
+    .metric-status {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+
+    .info-block {
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: #344054;
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+      margin-top: 8px;
+    }
+
+    .info-block strong {
+      color: var(--text);
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .coords-readout {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      color: var(--text);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .hint-text {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+
+    .status-note {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    #map {
+      flex: 1;
+      height: 100%;
+      cursor: crosshair;
+      z-index: 1;
+    }
+
+    /* Footer */
+    footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 20px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--muted);
+      background: var(--bg);
+    }
+
+    footer nav {
+      display: flex;
+      gap: 16px;
+    }
+
+    footer a {
+      color: var(--muted);
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      color: var(--text);
+      text-decoration: underline;
+    }
+
+    @media (max-width: 820px) {
+      .workspace {
+        flex-direction: column;
+      }
+      aside {
+        width: 100%;
+        height: 45vh;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <a href="index.html" class="brand">Krishna Basin Earth Observation</a>
+    <form class="search-wrapper" id="search-form">
+      <input
+        type="text"
+        id="search-input"
+        placeholder="Search place name or coordinates (e.g. 16.5062, 80.6481)"
+        autocomplete="off"
+      />
+      <button type="submit">Search</button>
+      <ul class="search-results" id="search-results"></ul>
+    </form>
+  </header>
+
+  <div class="workspace">
+    <aside>
+      <!-- Selected Location & Radius Control -->
+      <div>
+        <div class="panel-title">Study Area &amp; Radius Control</div>
+        <div class="card">
+          <div class="coords-readout">
+            <span>Selected Point:</span>
+            <strong id="selected-coords-box">16.5062, 80.6481</strong>
+          </div>
+          <p class="hint-text">Click anywhere on the map to move the study point.</p>
+
+          <div style="margin-top: 12px;">
+            <label for="radius-slider" style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">
+              Buffer Radius (Meters): <span id="radius-display">5000 m</span>
+            </label>
+            <div class="radius-row">
+              <input type="range" id="radius-slider" min="500" max="25000" step="500" value="5000" />
+            </div>
+            <div class="radius-input-box">
+              <input type="number" id="radius-number" min="500" max="50000" step="250" value="5000" />
+              <span style="font-size: 12px; color: var(--muted);">meters</span>
+              <button type="button" class="btn-apply" id="apply-radius-btn">Update Area</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Vegetation Index Values & Usefulness -->
+      <div>
+        <div class="panel-title">Vegetation Index Analysis</div>
+        <div class="metric-grid">
+          <div class="metric-box">
+            <div class="metric-label">Mean NDVI</div>
+            <div class="metric-value" id="ndvi-value">--</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-label">Mean EVI</div>
+            <div class="metric-value" id="evi-value">--</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="metric-status" id="vegetation-classification">
+            Condition: Awaiting calculation...
+          </div>
+
+          <div class="info-block" style="border-top: none; padding-top: 0; margin-top: 0;">
+            <strong>NDVI (Normalized Difference Vegetation Index)</strong>
+            Measures live green vegetation density using Red and Near-Infrared light: <code>(NIR - Red) / (NIR + Red)</code>, ranging from -1.0 to +1.0.
+            <br />
+            <em>Usefulness:</em> Tracks crop health, detects drought stress early, separates water bodies (&lt; 0.0) and built-up urban zones (0.0 to 0.2) from active cropland and forest canopy (&gt; 0.4).
+          </div>
+
+          <div class="info-block">
+            <strong>EVI (Enhanced Vegetation Index)</strong>
+            Optimizes the vegetation signal in high-biomass regions by correcting for soil background noise and atmospheric aerosol scattering.
+            <br />
+            <em>Usefulness:</em> Prevents signal saturation over dense multi-layer crop canopies and tropical forests where standard NDVI plateaus.
+          </div>
+        </div>
+      </div>
+
+      <!-- Raster Layer Toggles -->
+      <div>
+        <div class="panel-title">Raster Layers</div>
+        <div id="layers-list"></div>
+      </div>
+
+      <div class="status-note" id="status-note">
+        Initializing Earth Engine connection...
+      </div>
+    </aside>
+
+    <main id="map"></main>
+  </div>
+
+  <footer>
+    <span>&copy; 2026 Krishna Basin Earth Observation</span>
+    <nav>
+      <a href="privacy.html">Privacy Policy</a>
+      <a href="terms.html">Terms and Conditions</a>
+    </nav>
+  </footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script>
+    const API_BASE = "http://127.0.0.1:8000";
+    let selectedLat = 16.506206877709086;
+    let selectedLon = 80.648075109326;
+    let selectedRadiusMeters = 5000;
+
+    // Initialize Map
+    const map = L.map("map", {
+      center: [selectedLat, selectedLon],
+      zoom: 12,
+      zoomControl: true
+    });
+
+    // Base Layer: Esri World Imagery
+    L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      {
+        attribution: "Tiles &copy; Esri, USDA, USGS, AEX, GeoEye, Getmapping, IGN, IGP",
+        maxZoom: 20
+      }
+    ).addTo(map);
+
+    L.control.scale({ metric: true, imperial: false }).addTo(map);
+
+    // Interactive Marker and Local Preview Circle
+    let locationMarker = L.marker([selectedLat, selectedLon]).addTo(map);
+    let previewCircle = L.circle([selectedLat, selectedLon], {
+      radius: selectedRadiusMeters,
+      color: "#1b4332",
+      weight: 2,
+      fillColor: "#1b4332",
+      fillOpacity: 0.06,
+      dashArray: "4, 4"
+    }).addTo(map);
+
+    const activeTileLayers = {};
+    const layersListEl = document.getElementById("layers-list");
+    const selectedCoordsBox = document.getElementById("selected-coords-box");
+    const statusNoteEl = document.getElementById("status-note");
+    const ndviValueEl = document.getElementById("ndvi-value");
+    const eviValueEl = document.getElementById("evi-value");
+    const vegClassEl = document.getElementById("vegetation-classification");
+
+    // Radius Controls
+    const radiusSlider = document.getElementById("radius-slider");
+    const radiusNumber = document.getElementById("radius-number");
+    const radiusDisplay = document.getElementById("radius-display");
+    const applyRadiusBtn = document.getElementById("apply-radius-btn");
+
+    function syncRadiusUI(meters) {
+      selectedRadiusMeters = meters;
+      radiusSlider.value = Math.min(25000, Math.max(500, meters));
+      radiusNumber.value = meters;
+      radiusDisplay.textContent = `${meters.toLocaleString()} m`;
+      previewCircle.setRadius(meters);
+    }
+
+    radiusSlider.addEventListener("input", (e) => {
+      syncRadiusUI(parseInt(e.target.value, 10));
+    });
+
+    radiusNumber.addEventListener("input", (e) => {
+      const val = parseInt(e.target.value, 10);
+      if (!isNaN(val) && val >= 250) {
+        syncRadiusUI(val);
+      }
+    });
+
+    applyRadiusBtn.addEventListener("click", () => {
+      loadLayersForLocation(selectedLat, selectedLon, selectedRadiusMeters);
+    });
+
+    function classifyNDVI(ndvi) {
+      if (ndvi === null || ndvi === undefined) {
+        return "Condition: Cloud-masked or no valid pixels in window.";
+      }
+      if (ndvi < 0.0) {
+        return "Classification: Water body, river channel, or wet surface (< 0.00)";
+      }
+      if (ndvi < 0.2) {
+        return "Classification: Barren soil, rock, or dense urban concrete (0.00 - 0.20)";
+      }
+      if (ndvi < 0.45) {
+        return "Classification: Sparse vegetation, shrubland, or early-stage crops (0.20 - 0.45)";
+      }
+      return "Classification: Healthy, dense crop canopy or forest cover (> 0.45)";
+    }
+
+    function renderLayers(layers) {
+      Object.values(activeTileLayers).forEach((layer) => map.removeLayer(layer));
+      layersListEl.innerHTML = "";
+
+      layers.forEach((item) => {
+        const tileLayer = L.tileLayer(item.url, {
+          attribution: "Google Earth Engine",
+          opacity: 1.0,
+          maxZoom: 24
+        });
+
+        if (item.visible) {
+          tileLayer.addTo(map);
+        }
+        activeTileLayers[item.id] = tileLayer;
+
+        const row = document.createElement("div");
+        row.className = "layer-item";
+        row.innerHTML = `
+          <div class="layer-header">
+            <input type="checkbox" id="chk-${item.id}" ${item.visible ? "checked" : ""} />
+            <label for="chk-${item.id}">${item.name}</label>
+          </div>
+          <div class="layer-controls">
+            <span>Opacity</span>
+            <input type="range" id="op-${item.id}" min="0" max="1" step="0.05" value="1" />
+          </div>
+        `;
+        layersListEl.appendChild(row);
+
+        const checkbox = row.querySelector(`#chk-${item.id}`);
+        const slider = row.querySelector(`#op-${item.id}`);
+
+        checkbox.addEventListener("change", (e) => {
+          if (e.target.checked) {
+            tileLayer.addTo(map);
+          } else {
+            map.removeLayer(tileLayer);
+          }
+        });
+
+        slider.addEventListener("input", (e) => {
+          tileLayer.setOpacity(parseFloat(e.target.value));
+        });
+      });
+    }
+
+    async function loadLayersForLocation(lat, lon, radiusMeters) {
+      selectedLat = lat;
+      selectedLon = lon;
+      selectedCoordsBox.textContent = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+
+      locationMarker.setLatLng([lat, lon]);
+      previewCircle.setLatLng([lat, lon]);
+      previewCircle.setRadius(radiusMeters);
+
+      statusNoteEl.textContent = `Computing Sentinel-2 imagery & NDVI/EVI stats for ${radiusMeters.toLocaleString()} m radius...`;
+      ndviValueEl.textContent = "...";
+      eviValueEl.textContent = "...";
+
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/layers?lat=${lat}&lon=${lon}&radius_m=${radiusMeters}`
+        );
+        if (!res.ok) throw new Error("Backend returned non-200 status");
+        const data = await res.json();
+
+        renderLayers(data.layers);
+
+        const ndviMean = data.stats?.ndvi_mean;
+        const eviMean = data.stats?.evi_mean;
+
+        ndviValueEl.textContent = ndviMean !== null && ndviMean !== undefined ? ndviMean.toFixed(3) : "N/A";
+        eviValueEl.textContent = eviMean !== null && eviMean !== undefined ? eviMean.toFixed(3) : "N/A";
+        vegClassEl.textContent = classifyNDVI(ndviMean);
+
+        statusNoteEl.textContent = `Active study area: ${radiusMeters.toLocaleString()} m radius around ${lat.toFixed(4)}, ${lon.toFixed(4)}.`;
+      } catch (err) {
+        ndviValueEl.textContent = "Err";
+        eviValueEl.textContent = "Err";
+        vegClassEl.textContent = "Backend unreachable. Ensure FastAPI is running on port 8000.";
+        statusNoteEl.textContent = "Error fetching live Earth Engine data.";
+      }
+    }
+
+    // Click anywhere on the map to select a new location
+    map.on("click", (e) => {
+      const { lat, lng } = e.latlng;
+      loadLayersForLocation(lat, lng, selectedRadiusMeters);
+    });
+
+    // Search Handling
+    const searchForm = document.getElementById("search-form");
+    const searchInput = document.getElementById("search-input");
+    const searchResults = document.getElementById("search-results");
+
+    searchForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const query = searchInput.value.trim();
+      if (!query) return;
+
+      searchResults.innerHTML = "<li>Searching...</li>";
+      searchResults.style.display = "block";
+
+      try {
+        let results = [];
+        try {
+          const res = await fetch(`${API_BASE}/api/geocode?q=${encodeURIComponent(query)}`);
+          if (!res.ok) throw new Error();
+          results = await res.json();
+        } catch {
+          const nomRes = await fetch(
+            `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5`
+          );
+          const nomData = await nomRes.json();
+          results = nomData.map((d) => ({
+            name: d.display_name,
+            lat: parseFloat(d.lat),
+            lon: parseFloat(d.lon)
+          }));
+        }
+
+        searchResults.innerHTML = "";
+        if (results.length === 0) {
+          searchResults.innerHTML = "<li>No matching locations found.</li>";
+          return;
+        }
+
+        results.forEach((loc) => {
+          const li = document.createElement("li");
+          li.textContent = loc.name;
+          li.addEventListener("click", () => {
+            searchResults.style.display = "none";
+            searchInput.value = loc.name;
+            map.setView([loc.lat, loc.lon], 12);
+            loadLayersForLocation(loc.lat, loc.lon, selectedRadiusMeters);
+          });
+          searchResults.appendChild(li);
+        });
+      } catch (err) {
+        searchResults.innerHTML = "<li>Search failed. Check network connection.</li>";
+      }
+    });
+
+    document.addEventListener("click", (e) => {
+      if (!searchForm.contains(e.target)) {
+        searchResults.style.display = "none";
+      }
+    });
+
+    // Initial load
+    loadLayersForLocation(selectedLat, selectedLon, selectedRadiusMeters);
+  </script>
+</body>
+</html>
