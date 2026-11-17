@@ -10,7 +10,8 @@ app = FastAPI(title="Geospatial Analysis API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_credentials=False,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -45,112 +46,125 @@ def get_gee_tile_url(image: ee.Image, vis_params: dict) -> str:
     return map_id_dict["tile_fetcher"].url_format
 
 
+@app.get("/")
+def health_check():
+    return {"status": "ok", "ee_ready": EE_READY, "project": GCP_PROJECT}
+
+
 @app.get("/api/layers")
 def get_layers(
     lat: float = Query(DEFAULT_CENTER[0]),
     lon: float = Query(DEFAULT_CENTER[1]),
     radius_m: float = Query(5000.0, ge=250.0, le=50000.0),
-    start_date: str = Query("2026-09-01"),
-    end_date: str = Query("2026-10-15"),
+    start_date: str = Query("2025-01-01"),
+    end_date: str = Query("2026-11-18"),
 ):
-    """
-    Returns live Google Earth Engine tile URLs and zonal statistics (NDVI, EVI)
-    for a circular buffer of radius_m meters around (lat, lon).
-    """
     if not EE_READY:
         raise HTTPException(
             status_code=503,
             detail="Google Earth Engine is not authenticated on the server.",
         )
 
-    point = ee.Geometry.Point([lon, lat])
-    study_area = point.buffer(radius_m)
+    try:
+        point = ee.Geometry.Point([lon, lat])
+        study_area = point.buffer(radius_m)
 
-    s2 = (
-        ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
-        .filterBounds(study_area)
-        .filterDate(start_date, end_date)
-        .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 20))
-        .median()
-        .clip(study_area)
-    )
+        collection = (
+            ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+            .filterBounds(study_area)
+            .filterDate(start_date, end_date)
+            .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 40))
+        )
 
-    # 1. Sentinel-2 RGB
-    rgb_url = get_gee_tile_url(
-        s2, {"bands": ["B4", "B3", "B2"], "min": 0, "max": 3000}
-    )
+        # Fallback to any available image if strict cloud filter returns empty
+        if collection.size().getInfo() == 0:
+            collection = (
+                ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+                .filterBounds(study_area)
+                .filterDate("2024-01-01", end_date)
+            )
 
-    # 2. NDVI: (NIR - Red) / (NIR + Red)
-    ndvi = s2.normalizedDifference(["B8", "B4"]).rename("NDVI")
-    ndvi_url = get_gee_tile_url(
-        ndvi,
-        {
-            "min": -0.2,
-            "max": 0.8,
-            "palette": ["#8c510a", "#f6e8c3", "#d9f0d3", "#1b7837"],
-        },
-    )
+        s2 = collection.median().clip(study_area)
 
-    # 3. EVI: 2.5 * ((NIR - Red) / (NIR + 6 * Red - 7.5 * Blue + 1))
-    evi = s2.expression(
-        "2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))",
-        {
-            "NIR": s2.select("B8").divide(10000),
-            "RED": s2.select("B4").divide(10000),
-            "BLUE": s2.select("B2").divide(10000),
-        },
-    ).rename("EVI")
-    evi_url = get_gee_tile_url(
-        evi,
-        {
-            "min": -0.2,
-            "max": 0.8,
-            "palette": ["#762a83", "#f7f7f7", "#5aae61", "#00441b"],
-        },
-    )
+        # 1. Sentinel-2 RGB
+        rgb_url = get_gee_tile_url(
+            s2, {"bands": ["B4", "B3", "B2"], "min": 0, "max": 3000}
+        )
 
-    # 4. Study Area Boundary (Circular Perimeter)
-    boundary_img = ee.Image().byte().paint(
-        featureCollection=ee.FeatureCollection([ee.Feature(study_area)]),
-        color=1,
-        width=2,
-    )
-    boundary_url = get_gee_tile_url(boundary_img, {"palette": ["#d9534f"]})
-
-    # Compute Zonal Mean Statistics inside study_area
-    scale = 30 if radius_m <= 10000 else 100
-    stats_image = ndvi.addBands(evi)
-    stats_dict = stats_image.reduceRegion(
-        reducer=ee.Reducer.mean(),
-        geometry=study_area,
-        scale=scale,
-        maxPixels=1e8,
-        bestEffort=True,
-    ).getInfo()
-
-    ndvi_val = stats_dict.get("NDVI")
-    evi_val = stats_dict.get("EVI")
-
-    return {
-        "center": [lat, lon],
-        "radius_m": radius_m,
-        "zoom": DEFAULT_ZOOM,
-        "stats": {
-            "ndvi_mean": round(ndvi_val, 4) if ndvi_val is not None else None,
-            "evi_mean": round(evi_val, 4) if evi_val is not None else None,
-        },
-        "layers": [
-            {"id": "s2_rgb", "name": "Sentinel-2 RGB", "url": rgb_url, "visible": True},
-            {"id": "ndvi", "name": "NDVI", "url": ndvi_url, "visible": False},
-            {"id": "evi", "name": "EVI", "url": evi_url, "visible": False},
+        # 2. NDVI: (NIR - Red) / (NIR + Red)
+        ndvi = s2.normalizedDifference(["B8", "B4"]).rename("NDVI")
+        ndvi_url = get_gee_tile_url(
+            ndvi,
             {
-                "id": "boundary",
-                "name": "Study area boundary",
-                "url": boundary_url,
-                "visible": True,
+                "min": -0.2,
+                "max": 0.8,
+                "palette": ["#8c510a", "#f6e8c3", "#d9f0d3", "#1b7837"],
             },
-        ],
-    }
+        )
+
+        # 3. EVI: 2.5 * ((NIR - Red) / (NIR + 6 * Red - 7.5 * Blue + 1))
+        evi = s2.expression(
+            "2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))",
+            {
+                "NIR": s2.select("B8").divide(10000),
+                "RED": s2.select("B4").divide(10000),
+                "BLUE": s2.select("B2").divide(10000),
+            },
+        ).rename("EVI")
+        evi_url = get_gee_tile_url(
+            evi,
+            {
+                "min": -0.2,
+                "max": 0.8,
+                "palette": ["#762a83", "#f7f7f7", "#5aae61", "#00441b"],
+            },
+        )
+
+        # 4. Study Area Boundary
+        boundary_img = ee.Image().byte().paint(
+            featureCollection=ee.FeatureCollection([ee.Feature(study_area)]),
+            color=1,
+            width=2,
+        )
+        boundary_url = get_gee_tile_url(boundary_img, {"palette": ["#d9534f"]})
+
+        # Compute Zonal Mean Statistics inside study_area
+        scale = 30 if radius_m <= 10000 else 100
+        stats_image = ndvi.addBands(evi)
+        stats_dict = stats_image.reduceRegion(
+            reducer=ee.Reducer.mean(),
+            geometry=study_area,
+            scale=scale,
+            maxPixels=1e8,
+            bestEffort=True,
+        ).getInfo()
+
+        ndvi_val = stats_dict.get("NDVI")
+        evi_val = stats_dict.get("EVI")
+
+        return {
+            "center": [lat, lon],
+            "radius_m": radius_m,
+            "zoom": DEFAULT_ZOOM,
+            "stats": {
+                "ndvi_mean": round(ndvi_val, 4) if ndvi_val is not None else None,
+                "evi_mean": round(evi_val, 4) if evi_val is not None else None,
+            },
+            "layers": [
+                {"id": "s2_rgb", "name": "Sentinel-2 RGB", "url": rgb_url, "visible": True},
+                {"id": "ndvi", "name": "NDVI", "url": ndvi_url, "visible": False},
+                {"id": "evi", "name": "EVI", "url": evi_url, "visible": False},
+                {
+                    "id": "boundary",
+                    "name": "Study area boundary",
+                    "url": boundary_url,
+                    "visible": True,
+                },
+            ],
+        }
+    except Exception as exc:
+        print(f"Earth Engine processing error: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.get("/api/geocode")
