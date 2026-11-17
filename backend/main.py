@@ -1,4 +1,5 @@
 import os
+import json
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 import ee
@@ -17,8 +18,22 @@ GCP_PROJECT = os.getenv("EE_PROJECT", "able-pottery-463117-r0")
 DEFAULT_CENTER = [16.506206877709086, 80.648075109326]
 DEFAULT_ZOOM = 12
 
+
+def init_earth_engine():
+    sa_json_str = os.getenv("EE_SERVICE_ACCOUNT_JSON")
+    if sa_json_str:
+        sa_info = json.loads(sa_json_str)
+        credentials = ee.ServiceAccountCredentials(
+            email=sa_info["client_email"],
+            key_data=sa_json_str,
+        )
+        ee.Initialize(credentials=credentials, project=GCP_PROJECT)
+    else:
+        ee.Initialize(project=GCP_PROJECT)
+
+
 try:
-    ee.Initialize(project=GCP_PROJECT)
+    init_earth_engine()
     EE_READY = True
 except Exception as e:
     print(f"Earth Engine initialization warning: {e}")
@@ -45,7 +60,7 @@ def get_layers(
     if not EE_READY:
         raise HTTPException(
             status_code=503,
-            detail="Google Earth Engine is not authenticated on the server. Run 'earthengine authenticate'.",
+            detail="Google Earth Engine is not authenticated on the server.",
         )
 
     point = ee.Geometry.Point([lon, lat])
